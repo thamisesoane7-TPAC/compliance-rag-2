@@ -1,0 +1,67 @@
+# Project Ubuntu - Local / Enterprise-MVP PostgreSQL + pgvector stack
+#
+# SECURITY NOTE:
+# - The defaults below are for local development only.
+# - Override POSTGRES_PASSWORD (and preferably the other POSTGRES_* values)
+#   through your shell, CI secret store, or an uncommitted .env file.
+# - Port 5432 is bound to localhost only to avoid exposing PostgreSQL to the LAN.
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg16
+    container_name: project-ubuntu-postgres
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ubuntu_compliance}
+      POSTGRES_USER: ${POSTGRES_USER:-ubuntu}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ubuntu_dev_password}
+      PGDATA: /var/lib/postgresql/data/pgdata
+      TZ: UTC
+      PGTZ: UTC
+
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+
+    volumes:
+      # Durable database state.
+      - ubuntu_pgdata:/var/lib/postgresql/data
+      # Bootstrap a brand-new volume automatically. The Python test also applies
+      # this schema idempotently, so rerunning the test remains safe.
+      - ./schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+
+    # HNSW index builds can use shared memory. 1 GiB is comfortable for an MVP
+    # and avoids the tiny /dev/shm default commonly seen in containers.
+    shm_size: "1gb"
+
+    # Conservative local-enterprise defaults. Tune with real load testing before
+    # production; do not blindly copy these values to a managed database.
+    command:
+      - postgres
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - work_mem=16MB
+      - -c
+      - maintenance_work_mem=512MB
+      - -c
+      - max_connections=100
+      - -c
+      - log_min_duration_statement=500
+      - -c
+      - timezone=UTC
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\" -h 127.0.0.1 -p 5432"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+volumes:
+  ubuntu_pgdata:
+    name: project_ubuntu_pgdata
